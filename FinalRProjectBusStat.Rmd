@@ -1,0 +1,326 @@
+---
+title: "Final Quiz Business Statistics"
+Author: "Kaitlin Wallis"
+Date: "August 23rd, 2018"
+output: html_notebook
+---
+
+
+```{r}
+options(warn=0)
+library(readxl)
+library(MASS)
+library(car)
+library(corrplot)
+library(psych)
+library(ggplot2)
+library(tidyr)
+```
+
+#Data Cleaning
+
+##Data Overview
+```{r,warning=F, echo=TRUE, message=FALSE}
+mydata <- housedata_for_final_2018_1_
+describe(mydata)
+attach(mydata)
+
+
+```
+
+Target Variable: Sales Price of the house (s_p)
+The mean sales price of a single family home in MA from our dataset is $79,037.11, which is higher than the median price of $70,360 due to the mean being pulled by the left tail of the distribution. When looking at the min and max, I see that there is a large range of $192,816. One thing that I may want to investigate is the minimum price of $29,864. This price, while possible, is much cheaper than most homes in the United States regardless of the quality of the neighborhood or the house size. If given more time, this would be something to investigate. Another thing to think about when looking at the Sales prices is that the dataset may not be representative of the area. The maximum value in the dataset is $222,680 for a home when it is not uncommon for homes in the United States to sell for millions of dollars. 
+
+
+
+## Odd Values
+
+There were several other places in the dataset that gave me pause and that I went onto investigate further. In this section, I look into instances where attributes didn't make sense.
+###Bath
+```{r}
+highbathrooms <- mydata[mydata$bath>5,]
+mydata$bath[bath == 20] <- 2
+highbathrooms
+```
+Given the size of the lot, livingspace and number of bedrooms, I believe Bath = 20 is an error and that the true number of bathrooms is 2. 
+
+###Bedrooms
+
+```{r,warning=F, echo=TRUE, message=FALSE}
+lowbedrooms <- mydata[mydata$bdrms <1,]
+lowbedrooms
+mydata$bdrms[bdrms == -4] <- 4
+attach(mydata)
+
+```
+One instance has a value of -4 for bedrooms. Given -4 bedrooms is not possible, this data is a typo. Most likely, the true number of bedrooms is 4. However, given the area is small and the property only has one bathroom, I believe it would be a good idea to investigate this further in the future if given more time. 
+
+###Garage
+```{r,warning=F, echo=TRUE, message=FALSE}
+
+mydata[garsz_a == 2,]
+mydata$garsz_a[garsz_a == 2] <- 1
+attach(mydata)
+```
+garsz_a is a binary variable which should have a value of 0 or 1 to indicate the presence of a garage at the home. One home had a value of 2. This most likely a typo an the real value should be 1.
+
+###House Size
+```{r,warning=F, echo=TRUE, message=FALSE}
+lowhssz <- mydata[mydata$hssz <500,]
+lowhssz
+attach(mydata)
+```
+Looking again at the minimums, I see one house has an hssz of 216 square feet. this is small, particularly when I noticed that that property has 4 bedrooms. If I had more time, I would investigate this further to see if this was a true value. 
+###Lot Size
+```{r,warning=F, echo=TRUE, message=FALSE}
+lowltsz <- mydata[ltsz<.03,]
+
+
+mydata$ltszratio <- mydata$hssz/(mydata$ltsz*43560)
+lowltsz <- mydata[mydata$ltszratio > 1 & mydata$stl10 == 0 , ]
+lowltsz
+
+```
+There should not be a case when the ltsz is smaller than the house size if the house is only 1 story. However in this case, it is possible that the additional square footage is coming from the basement so I should leave the data.
+
+
+
+
+##Histograms
+
+Now that the data has been cleaned, let's take a look at the histograms.
+
+First, I looked at the target variable, Sales Price. 
+
+```{r}
+qplot(s_p,
+      geom="histogram",
+      bins = 15,
+      main = "Histogram for Sales Price", 
+      xlab = "Sales Price",  
+      ylab = "Count",
+      fill=I("lavender"), 
+      col=I("purple"))
+```
+
+
+```{r}
+
+qplot(log(s_p),
+      geom="histogram",
+      bins = 15,
+      main = "Histogram for log(Sales Price)", 
+      xlab = "Log(Sales Price)",  
+      ylab = "Count",
+      fill=I("lavender"), 
+      col=I("purple"))
+      
+```
+Looking at the intial histogram for Sales Price, the histogram is skewed strongly to the right with a long tail extending to the left because the price of homes varies greatly. In our dataset, many of the homes concentrate around the $50,000 - $100,000 range. However, the homes that cost $200,000 are valid points as well. In addition to the "extreme" values in the left tail, I also see a sharp cutoff be-low $50,000 where some homes reside. Looking at the graph, I see the right side doesn't go all the way to zero, Instead, the lowest value in our dataset is around $30,000. This makes sense as a home in general seems to have a base value of at least $30,000. 
+
+To fix the skew, I performed a power transformation with log base 10 to make the graph more normal-ly distributed. Here I see that there is much less of a tail and while the graph is still slightly skewed to the right, it is significantly more normal the before. Having a more normal distribution like this one is particularly important when calculating confidence intervals as skewedness can change the number of standards deviations away from the mean to reach a certain confidence level. 
+
+
+
+```{r,warning=F, echo=TRUE, message=FALSE}
+for (col in 2:ncol(mydata)){
+  hist(unlist(mydata[,col]), main = names(mydata[col]))
+}
+```
+
+Comments for distributions are in a screenshot on the word document. 
+
+
+##Correlations 
+
+```{r}
+plot(hssz, ltsz)
+plot(ltsz, hssz)
+regularlot <- mydata[ltsz < 1, ]
+plot(regularlot$ltsz, regularlot$hssz)
+```
+
+
+```{r}
+cor(mydata)
+```
+
+```{r,warning=F, echo=TRUE, message=FALSE}
+for (col in 1:ncol(mydata)){
+  plot(s_p,unlist(mydata[,col]),main = names(mydata[col]) )
+}
+
+```
+Now the data needs to be split into training and test sets before the model can be run
+
+```{r}
+set.seed(12345)
+mydata <- mydata[, 1:15]
+train.num<-sample(1:dim(mydata)[1],round(nrow(mydata)*0.75))
+mydata.train<-mydata[train.num,]
+mydata.test<-mydata[-train.num,]
+```
+```{r}
+
+```
+
+```{r}
+everythingmodel<- lm(s_p ~ ., data = mydata.train)
+summary(everythingmodel)
+```
+
+This is what it looks like if I just throw in every attribute into the model. I can use this model in the step function to use backward selection to choose the best attributes by taking out variables one at a time and examine the effect on the model. It should be noted that while this is effective, it is also necessarily to examine the attributes, their correlations and residuals by hand to look for various ways in which the attributes can be transformed to create a more successful model.
+
+From here, let's do some backwards selection.
+
+```{r}
+print("backward")
+step(everythingmodel,direction = "backward",trace = 0)
+print("forward")
+step(everythingmodel,direction = "forward",trace = 0)
+```
+This shows us that our most significant variables are the following : bath, ltsz, hssz, bsemt, f_place, dr, age5, stl10, bdrms
+But if there's multicolinearity, this could have negative affects on the model.  I can check for multicolinearity using the vif function (completed in a few more steps).
+#Model Building
+
+
+##Model1
+```{r}
+model1 <-lm(s_p ~ factor(bath) + ltsz + f_place + age5 + stl10 + bsemt + dr + factor(bdrms) + hssz, data = mydata.train)
+summary(model1)
+```
+Examining this output, I see all of the attributes are significant accept for stl10 and some of the factored attributes. If given more time, I could turn the factored attributes into n-1 variables and use them, but in this case, they probably aren't doing much harm to the model. Ultimately, I removed stl10 and kept the factored variables as they are for model2.
+
+###Residuals
+Next, I examin the residuals of model 1 to see if any patterns emerge that could be useful in the next model. 
+```{r,warning=F, echo=TRUE, message=FALSE}
+attach(mydata)
+mydataresids <- mydata.train
+mydataresids$resids <- resid(model1)
+attach(mydata)
+for (col in 1:ncol(mydata)){
+  plot(resids,unlist(mydata[,col]),main = names(mydata[col]) )
+}
+```
+Looking at these residual graphs, I didn't see any clear patterns that I could use to combine variables, but I did consistantly an increase in variance that correlated with an increase in y, indicating a multiplicative affect. Later, I would try to rectify this through power transformations.
+```{r}
+vif(model1)
+```
+
+None of these look too inflated, so they can stay in the model.
+##model2
+
+```{r}
+model2 <-lm(s_p ~ factor(bath) + ltsz + f_place + age5 + dr + factor(bdrms) + hssz + bsemt , data = mydata.train)
+summary(model2)
+```
+When I examine the residuals above, it was clear that there are still multiplicative effects that I don't understand. This can be seen by the fact that the variance is increasing as y increases. To rectify this, I need to do some power transformations
+
+##Power Transformations on Model2
+
+```{r}
+powerTransform(cbind(mydata.train$s_p, mydata.train$ltsz,mydata.train$hssz, )~1)
+
+```
+
+This output tells up that the optimal transformation for s_p would be 1/sqrt(s_p) for ltsz, 1/log(ltsz), for hssz we'd try sqrt
+
+```{r}
+model2<- lm(log10(s_p) ~ factor(bath) + log10(ltsz) + f_place + age5 + dr + factor(bdrms) + log10(hssz) + bsemt, data = mydata.train)
+summary(model2)
+```
+Again, all variables are significant accept for some of the factors. I end up with a low p value and an r squared of .69. 
+The residual standard error is 0.079, but until I am able to use this to calculate an interval and transform log(y) back to y, it doesn't tell us very much.
+```{r}
+plot(model2)
+```
+
+
+#Calculating Prediction Intervals
+```{r,warning=F, echo=TRUE, message=FALSE}
+mydatapredict<- mydata.test
+mydatapredict$predvalue<-predict(model2,newdata = mydata.test)
+mydatapredict$upper.int<- mydatapredict$predvalue + 0.07929*1.96
+mydatapredict$lower.int<-mydatapredict$predvalue - 0.07929*1.96
+
+
+mydatapredict$pv <- 10**mydatapredict$predvalue
+mydatapredict$ul <- 10**mydatapredict$upper.int
+mydatapredict$ll <- 10**mydatapredict$lower.int
+mydatapredict$diffs <-mydatapredict$s_p - mydatapredict$pv
+
+attach(mydatapredict)
+
+incorrect <- mydatapredict[s_p <= ll | s_p >= ul, ]
+#View(incorrect)
+
+median(abs(mydatapredict$diffs))
+```
+Analyzing Mean Squared Error
+```{r}
+MSE<-function(pred,actual){
+  return(mean((pred-actual)^2))
+}
+
+
+pred.model1<-predict(model1,newdata = mydata.test)
+pred.model2<-predict(model2,newdata = mydata.test)
+pred.model3<-predict(everythingmodel,newdata = mydata.test)
+
+
+data.frame(
+  Model=c("Model1","Model2", "everything"),
+  MSE=c(MSE(pred.model1,mydata.test$s_p),MSE(pred.model2,mydata.test$s_p),MSE(pred.model3,mydata.test$s_p)))
+
+```
+##Visualizing the interval
+```{r,warning=F, echo=TRUE, message=FALSE}
+mydatapredict <- mydatapredict[order(mydatapredict$s_p),]
+mydatapredict$ID <- seq(1, nrow(mydatapredict), 1)
+attach(mydatapredict)
+
+  
+  
+  #take log 
+ggplot(data=mydatapredict,aes(x=ID,y=s_p))+
+  geom_line(aes(y=s_p,color="Actual Sales Price"))+
+  geom_line(aes(y=pv, color="Predicted Sales Price"))+
+  theme_bw()+
+  geom_ribbon(aes(ymin =ll, ymax = ul), fill="grey70",alpha=0.5)+
+  ggtitle("Prediction Interval") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+ggplot(data=mydatapredict,aes(x=ID,y=s_p))+
+  geom_line(aes(y=s_p,color="Actual Sales Price"))+
+  geom_line(aes(y=pv, color="Predicted Sales Price"))+
+  theme_bw()+
+  ggtitle("Prediction Interval") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+Because this is a log model, I see that as the sales price increases, so does the interval itself (shown in grey).
+
+
+#Using the model to predict a new data point
+
+Finally, I can take the information about the new house data and use the model to predict the correct interval. 
+```{r}
+test <- data.frame(inv = 100, bath =2, hssz = 1200, bsemt = 0, a_c=1, f_place=0, garsz_a =1 , dw =1, dr=0, fr=0, age5=1, stl10=1, bdrms=4, ltsz = 0.25)
+predict.lm(model2, newdata= test, interval = "prediction", level = .95)
+```
+```{r}
+pointprediction <-10**4.822592
+pointlower<-10**4.66318
+pointupper <- 10**4.982003
+
+print("Point Prediction:")
+pointprediction
+
+print("Lower Limit:")
+pointlower
+
+print("Upper Limit: ")
+pointupper
+```
+My best guess for the price of the house is $66,464.85. I am 95% confident that the model falls between $46,044.74 and $95,940.73.
+
+
